@@ -1,0 +1,87 @@
+import requests
+from bs4 import BeautifulSoup
+import time
+import json
+import os
+
+# -----------------------------
+# 1️⃣ Telegram Setup (from environment variables)
+# -----------------------------
+BOT_TOKEN = os.environ.get("8213751012:AAFYvubDXeY3xU8vjaWLxNTT7XqMtPhUuwQ")  # Set on Render dashboard
+CHAT_ID = os.environ.get("5115198854")      # Set on Render dashboard
+
+# -----------------------------
+# 2️⃣ Job Clerk URLs
+# -----------------------------
+SEARCH_URLS = [
+    "https://www.jobclerk.com/jobs?q=surgery",
+    "https://www.jobclerk.com/jobs?q=emergency"
+]
+
+# -----------------------------
+# 3️⃣ Optional Keyword Filter
+# -----------------------------
+KEYWORDS = ["Emergency", "Surgery", "Trust Doctor", "Clinical Fellow"]
+
+# -----------------------------
+# 4️⃣ Seen Jobs Persistence
+# -----------------------------
+SEEN_FILE = "seen_jobs.json"
+
+# Load seen jobs if file exists
+if os.path.exists(SEEN_FILE):
+    with open(SEEN_FILE, "r") as f:
+        seen_jobs = set(json.load(f))
+else:
+    seen_jobs = set()
+
+def save_seen_jobs():
+    with open(SEEN_FILE, "w") as f:
+        json.dump(list(seen_jobs), f)
+
+# -----------------------------
+# 5️⃣ Telegram Alert Function
+# -----------------------------
+def send_telegram(message):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    data = {"chat_id": CHAT_ID, "text": message}
+    requests.post(url, data=data)
+
+# -----------------------------
+# 6️⃣ Scraper Function
+# -----------------------------
+def check_jobs():
+    global seen_jobs
+    for url in SEARCH_URLS:
+        try:
+            response = requests.get(url)
+            soup = BeautifulSoup(response.text, "html.parser")
+            
+            # Job Clerk lists jobs inside <a> tags
+            links = soup.find_all("a", href=True)
+            
+            for link in links:
+                job_url = link["href"]
+                
+                # Only pick valid job links
+                if "/job/" in job_url:
+                    # Convert to full URL if needed
+                    if not job_url.startswith("http"):
+                        job_url = "https://www.jobclerk.com" + job_url
+                    
+                    # Keyword filtering
+                    if any(keyword.lower() in link.text.lower() for keyword in KEYWORDS):
+                        if job_url not in seen_jobs:
+                            seen_jobs.add(job_url)
+                            save_seen_jobs()
+                            send_telegram(f"🚨 New Job Posted:\n{job_url}")
+        
+        except Exception as e:
+            print(f"Error checking {url}: {e}")
+
+# -----------------------------
+# 7️⃣ Main Loop (runs forever)
+# -----------------------------
+while True:
+    check_jobs()
+    time.sleep(180)  # check every 3 minutes
